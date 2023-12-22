@@ -1,8 +1,6 @@
 # Flink_Project_Cquirrel
 A realization based on Cquirrel Algorithm. Excecute query 3 on TPC-H
 
-# Project Name
-
 ## Version Configuration
 
 This project uses the following versions for key dependencies:
@@ -21,6 +19,7 @@ use maven to get jar package, and run in WSL Flink cluster.
 ## Algorithm Reference
 
 Demo:https://cse.hkust.edu.hk/~yike/Cquirrel.pdf
+
 Full Paper and Algorithm details:https://cse.hkust.edu.hk/~yike/sigmod20.pdf
 
 ## SQL query 
