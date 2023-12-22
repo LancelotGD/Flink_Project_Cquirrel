@@ -1,0 +1,135 @@
+package com.charles.main;
+
+import com.charles.RelationType.Payload;
+import org.apache.flink.api.common.state.ValueState;
+import org.apache.flink.api.common.state.ValueStateDescriptor;
+import org.apache.flink.api.common.typeinfo.TypeHint;
+import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.streaming.api.functions.co.KeyedCoProcessFunction;
+import org.apache.flink.util.Collector;
+
+import java.io.IOException;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Collections;
+import java.util.Date;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
+public class Q3LineitemProcessFunction extends KeyedCoProcessFunction<Object, Payload, Payload, Payload> {
+    SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd");
+
+    String nextKey = "ORDERKEY";
+
+    ValueState<Integer> aliveCount;
+
+    ValueState<Payload> alivePayload;
+
+    ValueState<Set<Payload>> aliveSet;
+
+
+    @Override
+    public void open(Configuration parameters) throws Exception {
+        ValueStateDescriptor<Integer> countDescriptor = new ValueStateDescriptor<>(
+                "Q3LineitemProcessFunction" + "Alive Count", Integer.class);
+        aliveCount = getRuntimeContext().getState(countDescriptor);
+
+        ValueStateDescriptor<Payload> alivePayloadDescriptor = new ValueStateDescriptor<Payload>(
+                "Q3LineitemProcessFunction" + "Alive Payload", Payload.class);
+        alivePayload = getRuntimeContext().getState(alivePayloadDescriptor);
+
+        TypeInformation<Set<Payload>> typeInformation = TypeInformation.of(new TypeHint<Set<Payload>>() {});
+        ValueStateDescriptor<Set<Payload>> setValueStateDescriptor = new ValueStateDescriptor<>(
+                "Q3LineitemProcessFunction" + "Alive Set", typeInformation);
+        aliveSet = getRuntimeContext().getState(setValueStateDescriptor);
+    }
+    public boolean isValid(Payload value) throws ParseException {
+        Date date = format.parse("1995-03-15");
+        return ((Date) value.getValueByColumnName("L_SHIPDATE")).compareTo(date) > 0;
+    }
+
+    @Override
+    public void processElement1(Payload payload, KeyedCoProcessFunction<Object, Payload, Payload, Payload>.Context context, Collector<Payload> collector) throws Exception {
+        if(aliveSet.value() == null) {
+            aliveSet.update(Collections.newSetFromMap(new ConcurrentHashMap<>()));
+            aliveCount.update(0);
+            alivePayload.update(null);
+        }
+
+        if(payload.type.equals("Setlive")){
+            Set<Payload> set = aliveSet.value();
+            alivePayload.update(new Payload(payload));
+            aliveCount.update(aliveCount.value() + 1);
+            for (Payload connectPayload : set){
+                payload.type = "Add";
+                collectPayload(payload, connectPayload, collector);
+            }
+        }else{
+            Set<Payload> set = aliveSet.value();
+            aliveCount.update(aliveCount.value() - 1);
+            for (Payload connectPayload : set){
+                payload.type = "Sub";
+
+                collectPayload(payload, connectPayload, collector);
+            }
+            alivePayload.update(null);
+        }
+    }
+
+    public void collectPayload(Payload payload, Payload connectPayload, Collector<Payload> out) throws IOException {
+        Payload tmp = new Payload(payload);
+
+        if(connectPayload != null){
+            for(int i = 0; i < connectPayload.attribute_name.size(); i++){
+                if(!tmp.attribute_name.contains(connectPayload.attribute_name.get(i))){
+                    tmp.attribute_name.add(connectPayload.attribute_name.get(i));
+                    tmp.attribute_value.add(connectPayload.attribute_value.get(i));
+                }
+            }
+        }
+
+        tmp.setKey(nextKey);
+        out.collect(tmp);
+    }
+
+    @Override
+    public void processElement2(Payload payload, KeyedCoProcessFunction<Object, Payload, Payload, Payload>.Context context, Collector<Payload> collector) throws Exception {
+
+        if(aliveSet.value() == null) {
+            aliveSet.update(Collections.newSetFromMap(new ConcurrentHashMap<>()));
+            aliveCount.update(0);
+            alivePayload.update(null);
+        }
+
+        Payload tmp = new Payload(payload);
+        tmp.type = "Tmp";
+        tmp.key = 0;
+
+
+        if (isValid(payload)) {
+            if(payload.type.equals("Insert")) {
+                if(aliveCount.value() == 1) {
+                    if(aliveSet.value().add(tmp)) {
+
+                        payload.type = "Add";
+                        collectPayload(payload, alivePayload.value(), collector);
+                    }
+                }else{
+                    aliveSet.value().add(tmp);
+                }
+            }
+        }else if(payload.type.equals("Delete")) {
+            if (aliveCount.value() == 1) {
+                if (aliveSet.value().contains(tmp)) {
+                    aliveSet.value().remove(tmp);
+
+                    payload.type = "Sub";
+                    collectPayload(payload, alivePayload.value(), collector);
+                }
+            } else {
+                aliveSet.value().remove(tmp);
+            }
+        }
+    }
+}
