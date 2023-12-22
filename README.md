@@ -11,7 +11,7 @@ This project uses the following versions for key dependencies:
 - Apache Flink: 1.18.0
 - Maven: 3.8.1 (or the version you are using)
 - Environment: WSL2
-- 
+
 ## Building the Project
 use maven to get jar package, and run in WSL Flink cluster.
 
